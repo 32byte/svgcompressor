@@ -41,7 +41,7 @@ pub fn main() {
     let mut compressed = content;
     // TODO: better logging / statistics
     for i in 0..iterations {
-        println!("Iteration {}/{}", i, iterations);
+        println!("Iteration {}/{}", i+1, iterations);
         compressed = compress(&compressed);
     }
 

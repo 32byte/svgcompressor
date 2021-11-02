@@ -131,7 +131,7 @@ pub fn children_to_string(node: &Node) -> String {
     if node.has_children() {
         let mut rect_children: Vec<Node> = Vec::new();
         let mut other_children: Vec<Node> = Vec::new();
-        let mut elem_blacklist: Vec<Node> = Vec::new();
+        let mut elem_blacklist: HashMap<Node, bool> = HashMap::new();
         let mut x_map: HashMap<Distance, Vec<Node>> = HashMap::new();
         let mut y_map: HashMap<Distance, Vec<Node>> = HashMap::new();
 
@@ -178,16 +178,14 @@ pub fn children_to_string(node: &Node) -> String {
             counter += 1;
             if node.tag_name().name() == "svg" {
                 print!(
-                    "\r{}/{} rects, {:.2}% total",
-                    counter,
-                    rect_children.len(),
+                    "\r{:.3}%",
                     counter as f64 / all_ele_len as f64 * 100_f64
                 );
                 std::io::stdout().flush().unwrap();
             }
 
             // This element was already compressed
-            if elem_blacklist.contains(&e) {
+            if elem_blacklist.get(&e).is_some() {
                 continue;
             }
 
@@ -197,7 +195,7 @@ pub fn children_to_string(node: &Node) -> String {
                 Some(neighbors) => {
                     for n in neighbors {
                         // neighbor was already compressed
-                        if elem_blacklist.contains(n) {
+                        if elem_blacklist.get(n).is_some() {
                             continue;
                         }
                         if e.get_y() == n.get_y() && e.same(&n, &vec!["fill".to_string()]) {
@@ -205,9 +203,9 @@ pub fn children_to_string(node: &Node) -> String {
 
                             merged = true;
 
-                            // "remove" e & c
-                            elem_blacklist.push(*e);
-                            elem_blacklist.push(*n);
+                            // "remove" e & n
+                            elem_blacklist.insert(*e, true);
+                            elem_blacklist.insert(*n, true);
 
                             break;
                         }
@@ -228,7 +226,7 @@ pub fn children_to_string(node: &Node) -> String {
                 Some(neighbors) => {
                     for n in neighbors {
                         // neighbor was already compressed
-                        if elem_blacklist.contains(n) {
+                        if elem_blacklist.get(n).is_some() {
                             continue;
                         }
 
@@ -237,9 +235,9 @@ pub fn children_to_string(node: &Node) -> String {
 
                             merged = true;
 
-                            // "remove" e & c
-                            elem_blacklist.push(*e);
-                            elem_blacklist.push(*n);
+                            // "remove" e & n
+                            elem_blacklist.insert(*e, true);
+                            elem_blacklist.insert(*n, true);
 
                             break;
                         }
@@ -261,9 +259,7 @@ pub fn children_to_string(node: &Node) -> String {
             counter += 1;
             if node.tag_name().name() == "svg" {
                 print!(
-                    "\r{}/{} rects, {:.2}% total",
-                    counter,
-                    rect_children.len(),
+                    "\r{:.3}%",
                     counter as f64 / all_ele_len as f64 * 100_f64
                 );
                 std::io::stdout().flush().unwrap();
