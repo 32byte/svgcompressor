@@ -17,3 +17,4 @@ path = "src/bin.rs"
 
 [dependencies]
 roxmltree = "0.14.1"
+clap = "2.33.3"
