@@ -1,19 +1,10 @@
-extern crate roxmltree;
-
+use log::Level;
 use roxmltree::{Attribute, Node};
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{stdout, Write};
 use std::mem;
 
-/*
-WARNING/TODOs:
- - When merging rect's its not accouted for namespaces
- - Rect equality checking is ugly due to the hardcoded keys
- - Need some debugging, which operations take the most time
- - Merging works only on rect's as of now.
- - The library needs some tests
-*/
-
+// Helper functions for Recangles
 pub trait RectExt {
     fn get_x(&self) -> f64;
     fn get_y(&self) -> f64;
@@ -24,6 +15,9 @@ pub trait RectExt {
     fn valid_rect(&self) -> bool;
 }
 
+// Even though its implemented for Node
+// the functions should be only used on
+// recangles.
 impl RectExt for Node<'_, '_> {
     fn get_x(&self) -> f64 {
         self.attribute("x").unwrap().parse().unwrap()
@@ -63,6 +57,9 @@ impl RectExt for Node<'_, '_> {
     }
 }
 
+// Helper functions for using floats as keys
+// in a Hashmap.
+// taken from: https://stackoverflow.com/questions/39638363/how-can-i-use-a-hashmap-with-f64-as-key-in-rust
 fn integer_decode(val: f64) -> (u64, i16, i8) {
     let bits: u64 = unsafe { mem::transmute(val) };
     let sign: i8 = if bits >> 63 == 0 { 1 } else { -1 };
@@ -86,9 +83,14 @@ impl Distance {
     }
 }
 
-pub fn merge_rects(a: &Node, b: &Node) -> String {
+// Merges two rectangles by:
+//  1. appending the children
+//  2. adjusting the width/height
+//     depending on the possitions
+//     of the rectangles
+fn merge_rects(a: &Node, b: &Node) -> String {
     // merge children
-    let children = children_to_string(a) + &children_to_string(b);
+    let children = compress_children_to_string(a) + &compress_children_to_string(b);
 
     // merge attributes
     let mut attributes_str = " ".to_string();
@@ -123,7 +125,77 @@ pub fn merge_rects(a: &Node, b: &Node) -> String {
     )
 }
 
-pub fn children_to_string(node: &Node) -> String {
+// Serializes the node into the xml format
+fn node_to_string(node: &Node) -> String {
+    // ignores empty lines and comments
+    if !node.is_element() && !node.is_text() {
+        return "".to_string();
+    }
+
+    if node.is_text() {
+        // roxmltree parses spaces between elements as text, which can be ignored
+        if node
+            .text()
+            .unwrap()
+            .to_string()
+            .replace(" ", "")
+            .replace("\n", "")
+            == ""
+        {
+            return "".to_string();
+        }
+
+        return node.text().unwrap().to_string();
+    }
+
+    let node_name = node.tag_name().name();
+
+    // parse children
+    let children = compress_children_to_string(node);
+
+    // parse attributes
+    let mut attributes = " ".to_string();
+    for attr in node.attributes() {
+        attributes += &format!("{}=\"{}\" ", attr.name(), attr.value());
+    }
+    // cut off last attributes char since it's a space
+    attributes = attributes[0..attributes.len() - 1].to_string();
+
+    // parse namespace
+    let mut namespace = "".to_string();
+    if node_name == "svg" {
+        namespace = format!(
+            " xmlns=\"{}\"",
+            node.tag_name().namespace().unwrap().to_string()
+        );
+    }
+
+    /* Note: To make the xml more clean this can be implemented
+        I am not sure though if this might cause problems,
+        so it's not implemented right now.
+
+    if children == "" {
+        return format!(
+            "<{node}{attributes}{namespace} />",
+            node = node_name,
+            attributes = attributes,
+            namespace = namespace
+        );
+    }
+    */
+
+    format!(
+        "<{node}{attributes}{namespace}>{children}</{node}>",
+        node = node_name,
+        attributes = attributes,
+        namespace = namespace,
+        children = children
+    )
+}
+
+// Serializes the children of a node into the xml format
+// Automatically compresses them by merging adjacent rectangles
+fn compress_children_to_string(node: &Node) -> String {
     let mut counter = 0;
     let mut c_merged = 0;
 
@@ -176,12 +248,9 @@ pub fn children_to_string(node: &Node) -> String {
             let mut merged = false;
 
             counter += 1;
-            if node.tag_name().name() == "svg" {
-                print!(
-                    "\r{:.3}%",
-                    counter as f64 / all_ele_len as f64 * 100_f64
-                );
-                std::io::stdout().flush().unwrap();
+            if node.tag_name().name() == "svg" && log::max_level() >= Level::Info {
+                print!("\r{:.3}%", counter as f64 / all_ele_len as f64 * 100_f64);
+                stdout().flush().unwrap();
             }
 
             // This element was already compressed
@@ -252,99 +321,35 @@ pub fn children_to_string(node: &Node) -> String {
                 continue;
             }
 
-            children_str += &compress_to_string(&e);
+            children_str += &node_to_string(&e);
         }
 
         for e in &other_children {
             counter += 1;
-            if node.tag_name().name() == "svg" {
-                print!(
-                    "\r{:.3}%",
-                    counter as f64 / all_ele_len as f64 * 100_f64
-                );
+            if node.tag_name().name() == "svg" && log::max_level() >= Level::Info {
+                print!("\r{:.3}%", counter as f64 / all_ele_len as f64 * 100_f64);
                 std::io::stdout().flush().unwrap();
             }
 
-            children_str += &compress_to_string(e);
+            children_str += &node_to_string(e);
         }
     }
 
     if node.tag_name().name() == "svg" {
-        println!("\nmerged {} elements", c_merged);
+        if log::max_level() >= Level::Debug {
+            println!("\nMerged {} rectangles!", c_merged);
+        } else {
+            println!("");
+        }
     }
 
     children_str
 }
 
-pub fn compress_to_string(node: &Node) -> String {
-    // ignores empty lines and comments
-    if !node.is_element() && !node.is_text() {
-        return "".to_string();
-    }
-
-    if node.is_text() {
-        // roxmltree parses spaces between elements as text, which can be ignored
-        if node
-            .text()
-            .unwrap()
-            .to_string()
-            .replace(" ", "")
-            .replace("\n", "")
-            == ""
-        {
-            return "".to_string();
-        }
-
-        return node.text().unwrap().to_string();
-    }
-
-    let node_name = node.tag_name().name();
-
-    // parse children
-    let children = children_to_string(node);
-
-    // parse attributes
-    let mut attributes = " ".to_string();
-    for attr in node.attributes() {
-        attributes += &format!("{}=\"{}\" ", attr.name(), attr.value());
-    }
-    // cut off last attributes char since it's a space
-    attributes = attributes[0..attributes.len() - 1].to_string();
-
-    // parse namespace
-    let mut namespace = "".to_string();
-    if node_name == "svg" {
-        namespace = format!(
-            " xmlns=\"{}\"",
-            node.tag_name().namespace().unwrap().to_string()
-        );
-    }
-
-    /* Note: To make the xml more clean this can be implemented
-        I am not sure though if this might cause problems,
-        so it's not implemented right now.
-
-    if children == "" {
-        return format!(
-            "<{node}{attributes}{namespace} />",
-            node = node_name,
-            attributes = attributes,
-            namespace = namespace
-        );
-    }
-    */
-
-    format!(
-        "<{node}{attributes}{namespace}>{children}</{node}>",
-        node = node_name,
-        attributes = attributes,
-        namespace = namespace,
-        children = children
-    )
-}
-
+// Public library function to compress a xml string
+// by merging adjacent rectangles
 pub fn compress(content: &str) -> String {
     let doc = roxmltree::Document::parse(&content).expect("Couldn't parse svg");
 
-    compress_to_string(&doc.root().first_child().unwrap())
+    node_to_string(&doc.root().first_child().unwrap())
 }
